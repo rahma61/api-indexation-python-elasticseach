@@ -1,0 +1,69 @@
+stages:
+  - build
+  - unit_test
+  - code_review
+
+.sonar_var: &sonar_var
+  variables:
+    SONAR_URL: http://sonar.pic.s1.p.fti.net
+
+.img_template: &img_template
+  image: 'registry.gitlab.si.francetelecom.fr/alagoffun/docker-images/runner_cocktail:1.7'
+
+.build_template: &build_template
+  <<: *img_template
+  <<: *sonar_var
+
+pip:build:
+  <<: *build_template
+  stage: build
+  allow_failure: false
+  script:
+    - python3 --version
+    - pip --version
+    - pip download -r requirements.txt --no-binary=all -d vendor
+  artifacts:
+    paths:
+      - ./vendor
+
+unit_tests:
+  <<: *build_template
+  stage: unit_test
+  allow_failure: false
+  script:
+    - echo "Unit Test"
+    - pip install -r requirements.txt
+    - python3 -m pytest
+    - pytest --cov=indexation_source/tests
+
+coverage_tests:
+  <<: *build_template
+  stage: unit_test
+  allow_failure: false
+  script:
+    - echo "Coverage Test"
+    - pip install -r requirements.txt
+    - pytest --cov-report xml:cov.xml --cov-report term --cov=indexation_source
+  artifacts:
+    paths:
+      - ./cov.xml
+
+code_review:sonarqube:
+  <<: *build_template
+  stage: code_review
+  allow_failure: false
+  script:
+    - echo "Code Analysis With SonarQube"
+    - sonar-scanner -Dsonar.host.url=$SONAR_URL
+
+code_review:pylint:
+  <<: *build_template
+  stage: code_review
+  allow_failure: false
+  script:
+    - echo "Code Analysis With Pylint"
+    - pip install -r requirements.txt
+    - pip install pylint-fail-under
+    - pylint-fail-under --fail_under 3 -d C0301,E1123,C0111 indexation_source | tee pylint.txt
+    - score=$(sed -n 's/^Your code has been rated at \([-0-9.]*\)\/.*/\1/p' pylint.txt)
+    - echo "Pylint score was $score"
